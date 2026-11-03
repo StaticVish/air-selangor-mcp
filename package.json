@@ -1,0 +1,38 @@
+{
+  "name": "air-selangor-mcp",
+  "version": "1.0.0",
+  "description": "MCP Server for Air Selangor bill monitoring and account management via Steel.dev",
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "air-selangor-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "node scripts/test-cli.js"
+  },
+  "keywords": [
+    "mcp",
+    "air-selangor",
+    "steel",
+    "playwright",
+    "utilities",
+    "model-context-protocol"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "dotenv": "^16.4.7",
+    "playwright-core": "^1.50.1",
+    "steel-sdk": "^0.18.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
