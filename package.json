@@ -21,7 +21,7 @@
     "utilities",
     "model-context-protocol"
   ],
-  "author": "",
+  "author": "Visveswaran Vaidyanathan",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.6.1",
