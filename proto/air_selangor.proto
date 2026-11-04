@@ -1,0 +1,124 @@
+syntax = "proto3";
+
+package airselangor.v1;
+
+// Air Selangor MCP Service Contract definition
+service AirSelangorService {
+  rpc CheckSession (CheckSessionRequest) returns (AuthStatus);
+  rpc Login (LoginRequest) returns (AuthStatus);
+  rpc Logout (LogoutRequest) returns (LogoutResponse);
+  rpc ListAccounts (ListAccountsRequest) returns (ListAccountsResponse);
+  rpc GetBillDetails (GetBillDetailsRequest) returns (BillDetails);
+  rpc CheckDueBills (CheckDueBillsRequest) returns (CheckDueBillsResponse);
+  rpc DownloadBillPdf (DownloadBillPdfRequest) returns (DownloadResult);
+  rpc GetSessionViewer (GetSessionViewerRequest) returns (SessionViewerResponse);
+}
+
+message CheckSessionRequest {}
+
+message LoginRequest {
+  string login_id = 1;
+  string password = 2;
+}
+
+message LogoutRequest {}
+
+message LogoutResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ListAccountsRequest {
+  bool auto_logout = 1;
+}
+
+message ListAccountsResponse {
+  int32 count = 1;
+  repeated WaterAccount accounts = 2;
+  string session_viewer_url = 3;
+}
+
+message WaterAccount {
+  string account_number = 1;
+  string premise_address = 2;
+  string display_nickname = 3;
+  string status = 4;
+  double current_balance = 5;
+  bool is_overdue = 6;
+  string due_date = 7;
+  string water_account_id = 8;
+  string bill_id = 9;
+}
+
+message GetBillDetailsRequest {
+  string account_number = 1;
+  bool auto_logout = 2;
+}
+
+message BillDetails {
+  string account_number = 1;
+  string registered_name = 2;
+  string premise_address = 3;
+  string bill_date = 4;
+  string due_date = 5;
+  double previous_balance = 6;
+  double current_charges = 7;
+  double total_outstanding = 8;
+  double minimum_payable = 9;
+  string status = 10;
+  int32 days_remaining = 11;
+  double consumption_m3 = 12;
+  string bill_number = 13;
+  string bill_id = 14;
+  string session_viewer_url = 15;
+}
+
+message CheckDueBillsRequest {
+  int32 due_within_days = 1;
+  bool auto_logout = 2;
+}
+
+message DueBillSummary {
+  string account_number = 1;
+  string premise_address = 2;
+  double amount = 3;
+  string due_date = 4;
+  string urgency = 5;
+  int32 days_remaining = 6;
+}
+
+message CheckDueBillsResponse {
+  string summary = 1;
+  repeated DueBillSummary due_bills = 2;
+  string session_viewer_url = 3;
+}
+
+message DownloadBillPdfRequest {
+  string account_number = 1;
+  string output_directory = 2;
+  bool auto_logout = 3;
+}
+
+message DownloadResult {
+  bool success = 1;
+  string account_number = 2;
+  string file_path = 3;
+  int64 file_size_bytes = 4;
+  string error = 5;
+}
+
+message GetSessionViewerRequest {}
+
+message SessionViewerResponse {
+  string session_viewer_url = 1;
+  string steel_session_id = 2;
+  string message = 3;
+}
+
+message AuthStatus {
+  bool is_authenticated = 1;
+  string user_identifier = 2;
+  string steel_session_id = 3;
+  string session_viewer_url = 4;
+  string message = 5;
+}
