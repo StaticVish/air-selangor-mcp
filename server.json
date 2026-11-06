@@ -1,0 +1,57 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.staticvish/air-selangor-mcp",
+  "title": "Air Selangor MCP Server",
+  "description": "Query, monitor, and manage Air Selangor water utility accounts via remote browser automation.",
+  "version": "1.0.0",
+  "websiteUrl": "https://github.com/StaticVish/air-selangor-mcp",
+  "repository": {
+    "url": "https://github.com/StaticVish/air-selangor-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/staticvish/air-selangor-mcp:latest",
+      "version": "1.0.0",
+      "runtimeHint": "docker",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "STEEL_BASE_URL",
+          "description": "URL of your Steel.dev sandbox (e.g., https://steel.your-tailnet.ts.net)",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "AIR_SELANGOR_ID",
+          "description": "Air Selangor NRIC, Passport, or SSM number",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "AIR_SELANGOR_PASSWORD",
+          "description": "Air Selangor account password",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "DOWNLOADS_DIR",
+          "description": "Directory where downloaded e-Bill PDF statements are saved",
+          "default": "/app/downloads",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "AUTO_LOGOUT",
+          "description": "Automatically log out and terminate browser session after query",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

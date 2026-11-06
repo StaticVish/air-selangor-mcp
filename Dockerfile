@@ -20,8 +20,12 @@ COPY proto/ ./proto/
 COPY src/ ./src/
 
 # Build optimized release binary
-RUN cargo build --release --locked && \
-    strip target/release/air-selangor-mcp
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo build --release --locked && \
+    cp target/release/air-selangor-mcp /app/air-selangor-mcp && \
+    strip /app/air-selangor-mcp
 
 # -------------------------------------------------------------------
 # Stage 2: Minimal Runtime (< 25 MB total)
@@ -48,7 +52,7 @@ RUN mkdir -p /app/.session /app/downloads && \
     chown -R mcp:mcp /app
 
 # Copy compiled binary and proto schemas
-COPY --from=builder --chown=mcp:mcp /app/target/release/air-selangor-mcp /app/air-selangor-mcp
+COPY --from=builder --chown=mcp:mcp /app/air-selangor-mcp /app/air-selangor-mcp
 COPY --from=builder --chown=mcp:mcp /app/proto /app/proto
 COPY --chown=mcp:mcp LICENSE README.md /app/
 

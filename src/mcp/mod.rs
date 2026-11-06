@@ -187,6 +187,174 @@ impl McpServer {
         })
     }
 
+    pub fn list_resources(&self) -> Value {
+        json!({
+            "resources": [
+                {
+                    "uri": "airselangor://schema/proto",
+                    "name": "Air Selangor Protobuf 3 Schema Contract",
+                    "description": "Raw Protocol Buffers v3 schema definition defining all water account, bill details, and RPC service contracts.",
+                    "mimeType": "text/x-protobuf"
+                },
+                {
+                    "uri": "airselangor://session/status",
+                    "name": "Air Selangor Session Status",
+                    "description": "Live authentication state and Steel remote browser session info.",
+                    "mimeType": "application/json"
+                }
+            ]
+        })
+    }
+
+    pub async fn read_resource(&self, uri: &str) -> Result<Value> {
+        match uri {
+            "airselangor://schema/proto" => {
+                Ok(json!({
+                    "contents": [
+                        {
+                            "uri": uri,
+                            "mimeType": "text/x-protobuf",
+                            "text": PROTO_SCHEMA
+                        }
+                    ]
+                }))
+            }
+            "airselangor://session/status" => {
+                let status = self.auth.check_auth().await?;
+                let text = serde_json::to_string_pretty(&status)?;
+                Ok(json!({
+                    "contents": [
+                        {
+                            "uri": uri,
+                            "mimeType": "application/json",
+                            "text": text
+                        }
+                    ]
+                }))
+            }
+            _ => anyhow::bail!("Unknown resource URI: {}", uri),
+        }
+    }
+
+    pub fn list_prompts(&self) -> Value {
+        json!({
+            "prompts": [
+                {
+                    "name": "audit_water_bills",
+                    "description": "Audit all registered Air Selangor water accounts, summarize current balances, and flag bills due soon.",
+                    "arguments": [
+                        {
+                            "name": "dueWithinDays",
+                            "description": "Threshold in days to flag upcoming bills (default: 7)",
+                            "required": false
+                        }
+                    ]
+                },
+                {
+                    "name": "download_monthly_ebill",
+                    "description": "Download the official e-Bill PDF statement for a specific water account to disk.",
+                    "arguments": [
+                        {
+                            "name": "accountNumber",
+                            "description": "10-digit Air Selangor water account number (e.g. 7400235711)",
+                            "required": true
+                        }
+                    ]
+                },
+                {
+                    "name": "diagnose_consumption",
+                    "description": "Analyze water consumption in cubic meters (m³) and compare current charges against previous periods.",
+                    "arguments": [
+                        {
+                            "name": "accountNumber",
+                            "description": "10-digit Air Selangor water account number (e.g. 7400235711)",
+                            "required": true
+                        }
+                    ]
+                }
+            ]
+        })
+    }
+
+    pub fn get_prompt(&self, name: &str, args: &Value) -> Result<Value> {
+        match name {
+            "audit_water_bills" => {
+                let days = args
+                    .get("dueWithinDays")
+                    .and_then(|v| v.as_str().or_else(|| v.as_i64().map(|_| "")))
+                    .unwrap_or("7");
+                Ok(json!({
+                    "description": "Audit all registered Air Selangor water accounts, summarize current balances, and flag bills due soon.",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": format!(
+                                    "Please perform a complete audit of my Air Selangor water accounts:\n\
+                                     1. Use the `list_accounts` tool to retrieve all registered accounts and current outstanding balances.\n\
+                                     2. Use the `check_due_bills` tool with dueWithinDays={} to identify any overdue bills or upcoming payments due.\n\
+                                     3. Provide a clear summary table showing the account numbers, premise addresses, balances, and payment due dates.\n\
+                                     4. Highlight any urgent actions required if bills are overdue.",
+                                    days
+                                )
+                            }
+                        }
+                    ]
+                }))
+            }
+            "download_monthly_ebill" => {
+                let acc = args.get("accountNumber").and_then(|v| v.as_str()).unwrap_or("");
+                if acc.is_empty() {
+                    anyhow::bail!("accountNumber is required for download_monthly_ebill prompt");
+                }
+                Ok(json!({
+                    "description": format!("Download official e-Bill PDF statement for account {}", acc),
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": format!(
+                                    "Please retrieve and download my latest Air Selangor water bill for account `{}`:\n\
+                                     1. Call `get_bill_details` with accountNumber=\"{}\" to inspect the current statement charges and due date.\n\
+                                     2. Call `download_bill_pdf` with accountNumber=\"{}\" to save the official PDF statement to the downloads directory.\n\
+                                     3. Confirm the local file path and provide the key billing figures (total amount due, bill number, bill date).",
+                                    acc, acc, acc
+                                )
+                            }
+                        }
+                    ]
+                }))
+            }
+            "diagnose_consumption" => {
+                let acc = args.get("accountNumber").and_then(|v| v.as_str()).unwrap_or("");
+                if acc.is_empty() {
+                    anyhow::bail!("accountNumber is required for diagnose_consumption prompt");
+                }
+                Ok(json!({
+                    "description": format!("Analyze water consumption for account {}", acc),
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": format!(
+                                    "Please analyze my water utility consumption for Air Selangor account `{}`:\n\
+                                     1. Call `get_bill_details` with accountNumber=\"{}\".\n\
+                                     2. Report my total water consumption in cubic meters (m³).\n\
+                                     3. Compare current charges with previous balance arrears and break down daily/monthly usage trends.",
+                                    acc, acc
+                                )
+                            }
+                        }
+                    ]
+                }))
+            }
+            _ => anyhow::bail!("Unknown prompt: {}", name),
+        }
+    }
+
     pub async fn call_tool(&self, name: &str, args: Value) -> Result<Value> {
         // Guard: Prevent triggering browser actions if credentials are not configured
         match name {
@@ -288,7 +456,9 @@ impl McpServer {
                 result: Some(json!({
                     "protocolVersion": "2024-11-05",
                     "capabilities": {
-                        "tools": {}
+                        "tools": {},
+                        "resources": {},
+                        "prompts": {}
                     },
                     "serverInfo": {
                         "name": "air-selangor-mcp",
@@ -344,6 +514,59 @@ impl McpServer {
                             "isError": true
                         })),
                         error: None,
+                    }),
+                }
+            }
+            "resources/list" => Some(JsonRpcResponse {
+                jsonrpc: "2.0",
+                id,
+                result: Some(self.list_resources()),
+                error: None,
+            }),
+            "resources/read" => {
+                let uri = req.params.get("uri").and_then(|v| v.as_str()).unwrap_or_default();
+                match self.read_resource(uri).await {
+                    Ok(val) => Some(JsonRpcResponse {
+                        jsonrpc: "2.0",
+                        id,
+                        result: Some(val),
+                        error: None,
+                    }),
+                    Err(e) => Some(JsonRpcResponse {
+                        jsonrpc: "2.0",
+                        id,
+                        result: None,
+                        error: Some(JsonRpcError {
+                            code: -32602,
+                            message: format!("Error reading resource {}: {}", uri, e),
+                        }),
+                    }),
+                }
+            }
+            "prompts/list" => Some(JsonRpcResponse {
+                jsonrpc: "2.0",
+                id,
+                result: Some(self.list_prompts()),
+                error: None,
+            }),
+            "prompts/get" => {
+                let prompt_name = req.params.get("name").and_then(|v| v.as_str()).unwrap_or_default();
+                let args = req.params.get("arguments").cloned().unwrap_or(json!({}));
+                match self.get_prompt(prompt_name, &args) {
+                    Ok(val) => Some(JsonRpcResponse {
+                        jsonrpc: "2.0",
+                        id,
+                        result: Some(val),
+                        error: None,
+                    }),
+                    Err(e) => Some(JsonRpcResponse {
+                        jsonrpc: "2.0",
+                        id,
+                        result: None,
+                        error: Some(JsonRpcError {
+                            code: -32602,
+                            message: format!("Error getting prompt {}: {}", prompt_name, e),
+                        }),
                     }),
                 }
             }

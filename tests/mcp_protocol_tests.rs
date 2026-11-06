@@ -70,6 +70,9 @@ async fn test_handle_initialize() {
     assert_eq!(result["protocolVersion"], "2024-11-05");
     assert_eq!(result["serverInfo"]["name"], "air-selangor-mcp");
     assert_eq!(result["serverInfo"]["version"], "1.0.0");
+    assert!(result["capabilities"]["tools"].is_object());
+    assert!(result["capabilities"]["resources"].is_object());
+    assert!(result["capabilities"]["prompts"].is_object());
 }
 
 #[tokio::test]
@@ -271,4 +274,82 @@ async fn test_handle_unknown_method() {
     let err = resp.error.expect("error must be populated");
     assert_eq!(err.code, -32601);
     assert!(err.message.contains("Method not found"));
+}
+
+#[tokio::test]
+async fn test_handle_resources_list_and_read() {
+    let config = AppConfig::load();
+    let server = McpServer::new(config);
+
+    // 1. Test resources/list
+    let req = JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(200)),
+        method: "resources/list".to_string(),
+        params: json!({}),
+    };
+    let resp = server.handle_request(req).await.expect("resources/list must return response");
+    assert_eq!(resp.id, json!(200));
+    let result = resp.result.expect("result should exist");
+    let resources = result["resources"].as_array().expect("resources must be array");
+    assert_eq!(resources.len(), 2);
+    assert!(resources.iter().any(|r| r["uri"] == "airselangor://schema/proto"));
+    assert!(resources.iter().any(|r| r["uri"] == "airselangor://session/status"));
+
+    // 2. Test resources/read
+    let read_req = JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(201)),
+        method: "resources/read".to_string(),
+        params: json!({
+            "uri": "airselangor://schema/proto"
+        }),
+    };
+    let read_resp = server.handle_request(read_req).await.expect("resources/read must return response");
+    assert_eq!(read_resp.id, json!(201));
+    let read_result = read_resp.result.expect("read result should exist");
+    let contents = read_result["contents"].as_array().expect("contents must be array");
+    assert_eq!(contents[0]["uri"], "airselangor://schema/proto");
+    assert!(contents[0]["text"].as_str().unwrap().contains("syntax = \"proto3\""));
+}
+
+#[tokio::test]
+async fn test_handle_prompts_list_and_get() {
+    let config = AppConfig::load();
+    let server = McpServer::new(config);
+
+    // 1. Test prompts/list
+    let req = JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(300)),
+        method: "prompts/list".to_string(),
+        params: json!({}),
+    };
+    let resp = server.handle_request(req).await.expect("prompts/list must return response");
+    assert_eq!(resp.id, json!(300));
+    let result = resp.result.expect("result should exist");
+    let prompts = result["prompts"].as_array().expect("prompts must be array");
+    assert_eq!(prompts.len(), 3);
+    assert!(prompts.iter().any(|p| p["name"] == "audit_water_bills"));
+    assert!(prompts.iter().any(|p| p["name"] == "download_monthly_ebill"));
+    assert!(prompts.iter().any(|p| p["name"] == "diagnose_consumption"));
+
+    // 2. Test prompts/get for audit_water_bills
+    let get_req = JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(301)),
+        method: "prompts/get".to_string(),
+        params: json!({
+            "name": "audit_water_bills",
+            "arguments": {
+                "dueWithinDays": "14"
+            }
+        }),
+    };
+    let get_resp = server.handle_request(get_req).await.expect("prompts/get must return response");
+    assert_eq!(get_resp.id, json!(301));
+    let get_result = get_resp.result.expect("get result should exist");
+    let messages = get_result["messages"].as_array().expect("messages must be array");
+    assert_eq!(messages[0]["role"], "user");
+    assert!(messages[0]["content"]["text"].as_str().unwrap().contains("dueWithinDays=14"));
 }

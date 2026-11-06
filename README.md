@@ -2,6 +2,7 @@
 
 [![Rust](https://img.shields.io/badge/Rust-1.85+-orange.svg?logo=rust)](https://www.rust-lang.org/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-1.6.1-green.svg)](https://modelcontextprotocol.io/)
+[![MCP Registry](https://img.shields.io/badge/MCP_Registry-server.json-blue.svg)](server.json)
 [![Container: GHCR](https://img.shields.io/badge/Container-GHCR-blue?logo=docker)](https://github.com/StaticVish/air-selangor-mcp/pkgs/container/air-selangor-mcp)
 [![Contracts: Protobuf 3](https://img.shields.io/badge/Contracts-Protobuf_3-blue?logo=google)](proto/air_selangor.proto)
 [![Steel.dev](https://img.shields.io/badge/Browser_Engine-Steel.dev-orange.svg)](https://steel.dev/)
@@ -17,8 +18,10 @@ Instead of running heavy Chromium binaries locally, this server connects remotel
 ## 📑 Table of Contents
 - [🐳 Zero-Install Quick Start (Docker / GHCR)](#-zero-install-quick-start-docker--ghcr)
 - [Architecture & Design](#-architecture--design)
+- [MCP Standard Specification (server.json)](#-mcp-standard-specification-serverjson)
 - [Protobuf 3 Request & Response Contracts](#-protobuf-3-request--response-contracts)
-- [MCP Tools Reference](#-mcp-tools-reference)
+- [MCP Tools Reference & Schemas](#-mcp-tools-reference--schemas)
+- [MCP Resources & Prompts](#-mcp-resources--prompts)
 - [Prerequisites](#-prerequisites)
 - [Building from Source (Rust)](#-building-from-source-rust)
 - [Automated Testing](#-automated-testing)
@@ -103,6 +106,35 @@ docker run -i --rm \
 
 ---
 
+## 📋 MCP Standard Specification (server.json)
+
+This server conforms to the official vendor-neutral [Model Context Protocol Specification](https://modelcontextprotocol.io/) and is cataloged with [`server.json`](server.json) using the standard schema (`https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json`):
+
+```json
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.staticvish/air-selangor-mcp",
+  "title": "Air Selangor MCP Server",
+  "description": "Query, monitor, and manage Air Selangor water utility accounts via remote browser automation.",
+  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/StaticVish/air-selangor-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/staticvish/air-selangor-mcp:latest",
+      "version": "1.0.0",
+      "runtimeHint": "docker",
+      "transport": { "type": "stdio" }
+    }
+  ]
+}
+```
+
+---
+
 ## 📜 Protobuf 3 Request & Response Contracts
 
 All models are codified in [`proto/air_selangor.proto`](file:///Works/BASE/STATICVISH/MCP-Servers/AirSelangor/proto/air_selangor.proto). AI clients can inspect the live contract anytime by calling the `get_proto_schema` tool:
@@ -155,19 +187,183 @@ message BillDetails {
 
 ---
 
-## 🛠️ MCP Tools Reference
+## 🛠️ MCP Tools Reference & Schemas
 
-| Tool | Description | Inputs |
+The server implements **9 native MCP tools** adhering strictly to the Model Context Protocol stdio JSON-RPC 2.0 specification:
+
+### Quick Summary
+
+| Tool | Purpose | Required Inputs | Optional Inputs |
+|---|---|---|---|
+| `check_session` | Check remote Steel browser authentication state | None | None |
+| `login` | Authenticate into portal (or get Live Viewer link) | None | `id` *(string)*, `password` *(string)* |
+| `logout` | Clear credentials, session files, and terminate browser | None | None |
+| `list_accounts` | List registered accounts and current balances | None | `autoLogout` *(boolean)* |
+| `get_bill_details` | Retrieve itemized statement and consumption ($m^3$) | `accountNumber` *(string)* | `autoLogout` *(boolean)* |
+| `check_due_bills` | Scan accounts for bills due within $N$ days | None | `dueWithinDays` *(number)*, `autoLogout` *(boolean)* |
+| `download_bill_pdf` | Download official monthly e-Bill PDF to disk | `accountNumber` *(string)* | `outputDirectory` *(string)*, `autoLogout` *(boolean)* |
+| `get_session_viewer` | Retrieve Steel Live Interactive Session Viewer URL | None | None |
+| `get_proto_schema` | Inspect Protobuf 3 contract definitions | None | None |
+
+---
+
+### Detailed Tool Specifications
+
+#### 1. `check_session`
+Checks whether the active Steel browser instance holds a valid, authenticated session on the Air Selangor portal.
+- **Input Schema**:
+  ```json
+  { "type": "object", "properties": {} }
+  ```
+- **Returns**: Protobuf message `AuthStatus` (`is_authenticated: bool`, `auth_method: string`, `needs_relogin: bool`, `session_viewer_url: string`).
+
+#### 2. `login`
+Initiates portal authentication using human-mimicking keystrokes. If CAPTCHA or 2FA challenge is encountered, returns the Steel Live Viewer URL for human-in-the-loop completion.
+- **Parameters**:
+  | Parameter | Type | Required | Description |
+  |---|---|:---:|---|
+  | `id` | `string` | Optional | Air Selangor NRIC, Passport, or SSM number (falls back to `.env`). |
+  | `password` | `string` | Optional | Air Selangor password (falls back to `.env`). |
+- **Input Schema**:
+  ```json
+  {
+    "type": "object",
+    "properties": {
+      "id": { "type": "string", "description": "Optional login ID" },
+      "password": { "type": "string", "description": "Optional login password" }
+    }
+  }
+  ```
+- **Returns**: Protobuf message `AuthStatus`.
+
+#### 3. `logout`
+Completely terminates the remote browser session on Steel, wipes session cookies, and purges local encrypted session files.
+- **Input Schema**:
+  ```json
+  { "type": "object", "properties": {} }
+  ```
+- **Returns**: JSON confirmation `{ "status": "logged_out", "message": "..." }`.
+
+#### 4. `list_accounts`
+Retrieves all water utility accounts linked to your identity along with current balances, premise addresses, and status.
+- **Parameters**:
+  | Parameter | Type | Required | Description |
+  |---|---|:---:|---|
+  | `autoLogout` | `boolean` | Optional | If `true`, logs out and terminates the browser session immediately after fetching. |
+- **Input Schema**:
+  ```json
+  {
+    "type": "object",
+    "properties": {
+      "autoLogout": { "type": "boolean", "description": "Terminate session after query" }
+    }
+  }
+  ```
+- **Returns**: Protobuf message `ListAccountsResponse` (array of `WaterAccount`).
+
+#### 5. `get_bill_details`
+Retrieves detailed, itemized billing metrics for a specific water account, including current charges, outstanding arrears, consumption in cubic meters ($m^3$), and bill dates.
+- **Parameters**:
+  | Parameter | Type | Required | Description |
+  |---|---|:---:|---|
+  | `accountNumber` | `string` | **Yes** | 10-digit Air Selangor water account number (e.g., `7400235711`). |
+  | `autoLogout` | `boolean` | Optional | If `true`, logs out and terminates the browser session immediately after fetching. |
+- **Input Schema**:
+  ```json
+  {
+    "type": "object",
+    "properties": {
+      "accountNumber": { "type": "string", "description": "10-digit water account number" },
+      "autoLogout": { "type": "boolean", "description": "Terminate session after query" }
+    },
+    "required": ["accountNumber"]
+  }
+  ```
+- **Returns**: Protobuf message `BillDetails`.
+
+#### 6. `check_due_bills`
+Scans all registered water accounts and filters for bills that are currently overdue or due within the specified threshold.
+- **Parameters**:
+  | Parameter | Type | Required | Default | Description |
+  |---|---|:---:|:---:|---|
+  | `dueWithinDays` | `number` | Optional | `7` | Days threshold to flag upcoming bills. |
+  | `autoLogout` | `boolean` | Optional | `false` | Terminate browser session after query. |
+- **Input Schema**:
+  ```json
+  {
+    "type": "object",
+    "properties": {
+      "dueWithinDays": { "type": "number", "description": "Days threshold (default: 7)" },
+      "autoLogout": { "type": "boolean", "description": "Terminate session after query" }
+    }
+  }
+  ```
+- **Returns**: Protobuf message `CheckDueBillsResponse`.
+
+#### 7. `download_bill_pdf`
+Streams the official monthly PDF statement directly from Azure Blob Storage SAS URLs to the local host directory.
+- **Parameters**:
+  | Parameter | Type | Required | Default | Description |
+  |---|---|:---:|:---:|---|
+  | `accountNumber` | `string` | **Yes** | — | 10-digit Air Selangor water account number. |
+  | `outputDirectory` | `string` | Optional | `./downloads` | Directory path where PDF statement is saved. |
+  | `autoLogout` | `boolean` | Optional | `false` | Terminate browser session after download. |
+- **Input Schema**:
+  ```json
+  {
+    "type": "object",
+    "properties": {
+      "accountNumber": { "type": "string", "description": "10-digit water account number" },
+      "outputDirectory": { "type": "string", "description": "Directory to save PDF" },
+      "autoLogout": { "type": "boolean", "description": "Terminate session after query" }
+    },
+    "required": ["accountNumber"]
+  }
+  ```
+- **Returns**: Protobuf message `DownloadResult` (`saved_path`, `file_size_bytes`, `success`).
+
+#### 8. `get_session_viewer`
+Returns the direct URL to the Steel Live Interactive Viewer so the user can interact directly with the remote browser session over Tailscale.
+- **Input Schema**:
+  ```json
+  { "type": "object", "properties": {} }
+  ```
+- **Returns**: Protobuf message `SessionViewerResponse` (`steel_session_id`, `session_viewer_url`).
+
+#### 9. `get_proto_schema`
+Provides the raw Protobuf 3 contract schema for AI context introspection and self-describing service definitions.
+- **Input Schema**:
+  ```json
+  { "type": "object", "properties": {} }
+  ```
+- **Returns**: Raw `proto/air_selangor.proto` schema text.
+
+---
+
+## 📦 MCP Resources & Prompts
+
+The server exposes first-class Model Context Protocol **Resources** (`resources/list`, `resources/read`) and **Prompts** (`prompts/list`, `prompts/get`) in addition to Tools:
+
+### 📑 MCP Resources
+
+| URI | Name | MIME Type | Description |
+|---|---|---|---|
+| `airselangor://schema/proto` | Protobuf 3 Contract Schema | `text/x-protobuf` | Raw Protocol Buffers v3 definition of all models (`WaterAccount`, `BillDetails`, etc.). |
+| `airselangor://session/status` | Active Session Status | `application/json` | Real-time authentication and Steel remote browser session state. |
+
+Clients can attach these resources directly into the AI context for immediate schema verification or session diagnostics without executing tools.
+
+---
+
+### 💬 MCP Prompts & Pre-Configured Workflows
+
+Users and AI clients can invoke native MCP prompt templates (e.g., via slash commands in Claude Desktop or Antigravity):
+
+| Prompt Name | Arguments | Description |
 |---|---|---|
-| `check_session` | Checks whether the current Steel browser session is authenticated on Air Selangor. | None |
-| `login` | Logs into the portal. If visual verification (CAPTCHA) or 2FA is needed, provides the Steel Live Viewer URL. | `id` *(string)*, `password` *(string)* |
-| `logout` | Logs out from the portal, clears all cookies, localStorage, session files, and terminates the remote Steel browser instance. | None |
-| `list_accounts` | Lists all registered water accounts with their balance, address, and status. | `autoLogout` *(bool, optional)* |
-| `get_bill_details` | Retrieves itemized billing statement metrics and water consumption ($m^3$). | `accountNumber` *(string, required)*, `autoLogout` *(bool, optional)* |
-| `check_due_bills` | Scans all accounts and filters bills due within $N$ days (or overdue). | `dueWithinDays` *(number, default: 7)*, `autoLogout` *(bool, optional)* |
-| `download_bill_pdf` | Downloads the official e-Bill PDF statement directly to the local filesystem. | `accountNumber` *(string, req)*, `outputDirectory` *(string)*, `autoLogout` *(bool, optional)* |
-| `get_session_viewer`| Returns the interactive Steel Live Interactive Session Viewer URL. | None |
-| `get_proto_schema` | Returns the raw Protobuf 3 contract definitions for AI context introspection. | None |
+| `audit_water_bills` | `dueWithinDays` *(number, optional, default: 7)* | Audits all registered accounts, compiles current balances, and flags upcoming due dates. |
+| `download_monthly_ebill` | `accountNumber` *(string, required)* | Retrieves latest bill figures and downloads the official PDF statement to `./downloads`. |
+| `diagnose_consumption` | `accountNumber` *(string, required)* | Analyzes water consumption in cubic meters ($m^3$) and compares charges against previous arrears. |
 
 ---
 
@@ -339,7 +535,7 @@ agy mcp add airselangor docker run -i --rm \
 The container image is built and maintained automatically via **GitHub Actions**:
 
 - **Automated CI**: Runs `cargo test` across all unit, protocol, and integration test suites on every push.
-- **Multi-Architecture**: Built natively with Docker Buildx & QEMU for both Intel/AMD64 (`linux/amd64`) and ARM64 / AArch64 (`linux/arm64`) runtimes (supporting Apple Silicon, AWS Graviton, and Raspberry Pi).
+- **Multi-Architecture**: Built natively in parallel on GitHub bare-metal runner matrix (`ubuntu-latest` for `linux/amd64` and `ubuntu-24.04-arm` for `linux/arm64`), merging unified multi-arch manifests in ~3 minutes without slow QEMU emulation.
 - **Free GitHub Container Registry (GHCR)**: Available publicly at `ghcr.io/staticvish/air-selangor-mcp:latest`.
 - **Automatic Pruning**: Automatically retains only the **latest single container release** while preserving multi-arch child manifests, keeping registry storage clean, lightweight, and within GitHub's free tier.
 
